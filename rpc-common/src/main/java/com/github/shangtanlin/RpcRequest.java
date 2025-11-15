@@ -7,13 +7,23 @@ import java.util.Arrays;
  * RPC 请求对象
  * 必须实现 Serializable 接口才能在网络中传输
  */
-public class RpcRequest implements Serializable {
+//不再需要实现Serializable接口了，Kryo不需要
+public class RpcRequest   {
+    private int requestId; // 新增请求ID
+
     private String interfaceName;  // 接口名
     private String methodName;     // 方法名
     private Class<?>[] parameterTypes; // 参数类型
     private Object[] parameters;     // 参数
 
-    // --- Getters and Setters ---
+
+// --- Getters and Setters ---
+
+    public int getRequestId() {
+        return requestId;
+    }
+
+    public void setRequestId(int requestId) {}
 
     public String getInterfaceName() {
         return interfaceName;

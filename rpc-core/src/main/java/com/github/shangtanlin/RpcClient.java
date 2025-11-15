@@ -1,22 +1,31 @@
 package com.github.shangtanlin;
 
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
+import io.netty.bootstrap.Bootstrap;
+import io.netty.channel.*;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.SocketChannel;
+import io.netty.channel.socket.nio.NioSocketChannel;
+
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
-import java.net.Socket;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class RpcClient {
 
-    /**
-     * 获取一个服务的代理对象
-     * @param serviceClass 接口类
-     * @param host 服务主机
-     * @param port 服务端口
-     * @param <T> 泛型
-     * @return 代理对象
-     */
+    private final EventLoopGroup group = new NioEventLoopGroup();
+    // 存储 Channel，(host:port -> Channel)
+    private final ConcurrentHashMap<String, Channel> channelMap = new ConcurrentHashMap<>();
+
+    // 存储 (requestId -> 对应的 Future)
+    // RpcClientHandler 会从这里取 Future 并设置结果
+    public static final ConcurrentHashMap<Integer, CompletableFuture<RpcResponse>> PENDING_FUTURES = new ConcurrentHashMap<>();
+
+    // 用于生成全局唯一的 requestId
+    private static final AtomicInteger REQUEST_ID_GENERATOR = new AtomicInteger(1);
+
     @SuppressWarnings("unchecked")
     public <T> T getProxy(Class<T> serviceClass, String host, int port) {
         return (T) Proxy.newProxyInstance(
@@ -26,10 +35,7 @@ public class RpcClient {
         );
     }
 
-    /**
-     * 动态代理的 InvocationHandler
-     */
-    private static class RpcInvocationHandler implements InvocationHandler {
+    private class RpcInvocationHandler implements InvocationHandler {
         private final String host;
         private final int port;
         private final Class<?> serviceClass;
@@ -42,38 +48,71 @@ public class RpcClient {
 
         @Override
         public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
-            // 1. 创建 RpcRequest 对象
+            // 1. 获取或创建 Channel
+            Channel channel = getOrCreateChannel(host, port);
+
+            // 2. 创建 RpcRequest
             RpcRequest request = new RpcRequest();
+            request.setRequestId(REQUEST_ID_GENERATOR.getAndIncrement()); // 获取唯一ID
             request.setInterfaceName(serviceClass.getName());
             request.setMethodName(method.getName());
             request.setParameterTypes(method.getParameterTypes());
             request.setParameters(args);
 
-            System.out.println("客户端代理发起调用: " + request);
+            // 3. 创建一个 CompletableFuture 来等待异步结果
+            CompletableFuture<RpcResponse> future = new CompletableFuture<>();
+            PENDING_FUTURES.put(request.getRequestId(), future);
 
-            // 2. 发起网络请求 (Socket + IO流)
-            // try-with-resources 会自动关闭流和Socket
-            try (Socket socket = new Socket(host, port);
-                 ObjectOutputStream oos = new ObjectOutputStream(socket.getOutputStream());
-                 ObjectInputStream ois = new ObjectInputStream(socket.getInputStream())) {
+            // 4. 发送 RpcRequest (异步)
+            channel.writeAndFlush(request);
 
-                // 3. 发送 RpcRequest
-                oos.writeObject(request);
-                oos.flush();
+            System.out.println("客户端发起调用: " + request);
 
-                // 4. 接收 RpcResponse
-                RpcResponse response = (RpcResponse) ois.readObject();
+            // 5. 阻塞等待结果 (同步等待异步)
+            // (可以设置超时)
+            RpcResponse response = future.get(); // .get(5, TimeUnit.SECONDS);
 
-                // 5. 处理响应
-                if (response.hasException()) {
-                    throw response.getException(); // 如果服务端有异常，则抛出
-                } else {
-                    return response.getResult(); // 返回正常结果
-                }
-            } catch (Exception e) {
-                System.err.println("RPC 客户端调用失败: " + e.getMessage());
-                throw new RuntimeException("RPC call failed", e);
+            // 6. 处理响应
+            if (response.hasException()) {
+                throw response.getException();
+            } else {
+                return response.getResult();
             }
         }
+    }
+
+    // 获取或创建到服务端的连接 (Channel)
+    private Channel getOrCreateChannel(String host, int port) throws InterruptedException {
+        String address = host + ":" + port;
+        Channel channel = channelMap.get(address);
+
+        if (channel != null && channel.isActive()) {
+            return channel;
+        }
+
+        // Channel 不可用，需要新建
+        Bootstrap b = new Bootstrap();
+        b.group(group)
+                .channel(NioSocketChannel.class)
+                .option(ChannelOption.TCP_NODELAY, true)
+                .handler(new ChannelInitializer<SocketChannel>() {
+                    @Override
+                    public void initChannel(SocketChannel ch) throws Exception {
+                        ch.pipeline()
+                                .addLast(new RpcDecoder()) // 入站：解码
+                                .addLast(new RpcEncoder()) // 出站：编码
+                                .addLast(new RpcClientHandler()); // 入站：处理响应
+                    }
+                });
+
+        ChannelFuture future = b.connect(host, port).sync();
+        channel = future.channel();
+        channelMap.put(address, channel);
+        return channel;
+    }
+
+    // (需要一个方法来关闭 group)
+    public void shutdown() {
+        group.shutdownGracefully();
     }
 }
