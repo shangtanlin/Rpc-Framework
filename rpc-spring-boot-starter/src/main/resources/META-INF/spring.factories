@@ -1,2 +1,2 @@
 org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
-  com.github.shangtanlin.starter.config.RpcAutoConfiguration
+  com.github.shangtanlin.config.RpcAutoConfiguration

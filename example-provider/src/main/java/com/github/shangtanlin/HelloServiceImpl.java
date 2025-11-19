@@ -1,5 +1,9 @@
 package com.github.shangtanlin;
 
+
+import com.github.shangtanlin.annotation.RpcService;
+
+@RpcService
 public class HelloServiceImpl implements HelloService {
     @Override
     public String hello(String name) {

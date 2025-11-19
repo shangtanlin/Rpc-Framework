@@ -34,12 +34,13 @@
         <version>3.2</version>
       </dependency>
 
-        <dependency>
-          <groupId>org.slf4j</groupId>
-          <artifactId>slf4j-simple</artifactId>
-          <version>1.7.30</version>
-          <scope>runtime</scope>
-        </dependency>
+      <!--删除slf4j-simple，防止依赖冲突，spring-boot只允许Logback-->
+        <!--<dependency>-->
+        <!--  <groupId>org.slf4j</groupId>-->
+        <!--  <artifactId>slf4j-simple</artifactId>-->
+        <!--  <version>1.7.30</version>-->
+        <!--  <scope>runtime</scope>-->
+        <!--</dependency>-->
 
       <dependency>
         <groupId>org.apache.curator</groupId>

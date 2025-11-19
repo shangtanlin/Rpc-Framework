@@ -46,11 +46,11 @@
             <artifactId>objenesis</artifactId>
         </dependency>
 
-
-        <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-simple</artifactId>
-        </dependency>
+        <!--删除slf4j-simple，防止依赖冲突，spring-boot只允许Logback-->
+        <!--<dependency>-->
+        <!--    <groupId>org.slf4j</groupId>-->
+        <!--    <artifactId>slf4j-simple</artifactId>-->
+        <!--</dependency>-->
 
         <dependency>
             <groupId>com.github.shangtanlin</groupId>
